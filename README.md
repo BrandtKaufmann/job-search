@@ -152,7 +152,7 @@ it to force a "first run" where everything is treated as new.
 ## Pinned versions
 
 - Runner: `ubuntu-24.04`
-- Actions: `actions/checkout@v4.2.2`, `actions/setup-python@v5.3.0`
+- Actions: `actions/checkout@v5.0.1`, `actions/setup-python@v6.3.0`
 - Python: 3.11
 - pip: 24.3.1
 - Packages: see [`requirements.txt`](requirements.txt)

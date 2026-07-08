@@ -1,13 +1,18 @@
 # job-search
 
-Scrapes LinkedIn and Indeed four times a day via GitHub Actions for new
-postings matching target titles, and emails a digest via Gmail SMTP.
+Scrapes LinkedIn and Indeed twice a day via GitHub Actions for new
+postings matching target roles, and emails a digest via Gmail SMTP.
 
 ## What it looks for
 
-- **Titles** (each queried separately against each board):
-  Data Scientist, Machine Learning Engineer, Solutions Architect,
-  Sales Engineer, Forward Deployed Engineer
+- **Searches** (each queried separately against each board):
+  - **Computer Vision** — broad; LinkedIn matches the keyword in the title
+    *or description*, so ambiguously-titled roles (Software / Perception /
+    Research Engineer, etc.) that mention CV surface for manual triage.
+  - **Machine Learning Engineer** and **Deep Learning Engineer** — tight;
+    results are kept only if the *title* matches `TITLE_ALLOWLIST`
+    (`machine learning`, `deep learning`, `ml engineer`, `ml`), since keyword
+    search alone is noisy.
 - **Locations**: San Francisco Bay Area, San Diego Metropolitan Area,
   and US-Remote (three passes)
 - **Recency**: postings from the last 24 hours
@@ -16,14 +21,14 @@ postings matching target titles, and emails a digest via Gmail SMTP.
   `distinguished`, `fellow`, or roman-numeral levels `III`/`IV` — roles
   that typically require years of experience.
 
-Edit `TITLES`, `LOCATIONS`, and `EXCLUDED_SENIORITY_TERMS` at the top of
-[`scraper/main.py`](scraper/main.py) to change what's searched and what's
-filtered.
+Edit `SEARCHES`, `TITLE_ALLOWLIST`, `LOCATIONS`, and
+`EXCLUDED_SENIORITY_TERMS` at the top of [`scraper/main.py`](scraper/main.py)
+to change what's searched and what's filtered.
 
 ## How it works
 
 ```
-GitHub Actions cron (4x/day)
+GitHub Actions cron (2x/day)
   -> scraper.main
        -> scraper.linkedin.search(...)   # per title, per location
        -> scraper.indeed.search(...)
@@ -97,10 +102,12 @@ Expect the first run's email to contain many jobs (everything visible is
 
 ## Schedule
 
-Cron `0 6,12,18,0 * * *` (UTC) -> roughly 01:00, 07:00, 13:00, 19:00 ET.
-GitHub cron is best-effort and can be delayed 5-15 minutes under load.
+Runs twice daily at **9:15 AM** and **4:30 PM Pacific**, using the native
+cron `timezone` field (`America/Los_Angeles`), so the times stay correct
+across daylight saving automatically. GitHub cron is best-effort and can be
+delayed 5-15 minutes under load.
 
-To change the cadence, edit the `cron` line in
+To change the cadence, edit the `cron`/`timezone` entries in
 [`.github/workflows/job-scraper.yml`](.github/workflows/job-scraper.yml).
 
 ## Running locally

@@ -8,13 +8,23 @@ import sys
 
 from . import indeed, linkedin, notify, state
 
-TITLES = [
-    "Data Scientist",
-    "Machine Learning Engineer",
-    "Solutions Architect",
-    "Sales Engineer",
-    "Forward Deployed Engineer",
+# Each search pairs a LinkedIn keyword query with a title-filter policy.
+# When title_filter is True, results are kept only if the title matches
+# TITLE_ALLOWLIST -- LinkedIn keyword search also matches the description, so
+# tight roles get noisy without this. Computer Vision is intentionally left
+# broad so ambiguously-titled roles (Software/Perception/Research Engineer,
+# etc.) that mention CV still surface.
+SEARCHES = [
+    {"keywords": "Computer Vision", "title_filter": False},
+    {"keywords": "Machine Learning Engineer", "title_filter": True},
+    {"keywords": "Deep Learning Engineer", "title_filter": True},
 ]
+
+# Applied only to searches with title_filter=True.
+TITLE_ALLOWLIST = re.compile(
+    r"\b(machine learning|deep learning|ml engineer|ml)\b",
+    flags=re.IGNORECASE,
+)
 
 LOCATIONS = ["San Francisco Bay Area", "San Diego Metropolitan Area", "Remote"]
 
@@ -64,20 +74,24 @@ def configure_logging() -> None:
 
 
 def collect() -> list[dict]:
-    """Query every (board, title, location) combo and return a deduped list."""
+    """Query every (board, search, location) combo and return a deduped list."""
     seen_ids: set[str] = set()
     all_jobs: list[dict] = []
     for board_name, search_fn in BOARDS:
-        for title in TITLES:
+        for search in SEARCHES:
+            keywords = search["keywords"]
+            title_filter = search["title_filter"]
             for location in LOCATIONS:
                 try:
-                    jobs = search_fn(title, location)
+                    jobs = search_fn(keywords, location)
                 except Exception as e:  # noqa: BLE001 -- never let one board kill the run
                     logging.exception("%s search failed for %r/%r: %s",
-                                      board_name, title, location, e)
+                                      board_name, keywords, location, e)
                     continue
                 for job in jobs:
                     if job["id"] in seen_ids:
+                        continue
+                    if title_filter and not TITLE_ALLOWLIST.search(job.get("title", "")):
                         continue
                     seen_ids.add(job["id"])
                     all_jobs.append(job)

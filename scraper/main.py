@@ -26,7 +26,13 @@ TITLE_ALLOWLIST = re.compile(
     flags=re.IGNORECASE,
 )
 
-LOCATIONS = ["San Francisco Bay Area", "San Diego Metropolitan Area", "Remote"]
+LOCATIONS = [
+    "San Francisco Bay Area",
+    "Greater Seattle Area",
+    "Washington DC-Baltimore Area",
+    "Remote",
+    # "Los Angeles Metropolitan Area",  # uncomment to also search LA
+]
 
 BOARDS = [
     ("linkedin", linkedin.search),

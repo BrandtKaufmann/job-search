@@ -13,8 +13,9 @@ postings matching target roles, and emails a digest via Gmail SMTP.
     results are kept only if the *title* matches `TITLE_ALLOWLIST`
     (`machine learning`, `deep learning`, `ml engineer`, `ml`), since keyword
     search alone is noisy.
-- **Locations**: San Francisco Bay Area, San Diego Metropolitan Area,
-  and US-Remote (three passes)
+- **Locations**: San Francisco Bay Area, Greater Seattle Area,
+  Washington DC-Baltimore Area, and US-Remote (four passes). Los Angeles
+  is available but commented out in `LOCATIONS`.
 - **Recency**: postings from the last 24 hours
 - **Seniority filter**: excludes titles containing `senior`, `sr`, `staff`,
   `principal`, `lead`, `manager`, `director`, `head of`, `vp`, `chief`,

@@ -2,7 +2,10 @@ name: job-scraper
 
 on:
   schedule:
-    - cron: "0 6,12,18,0 * * *"   # 4x daily UTC (~1a/7a/1p/7p ET)
+    - cron: "15 9 * * *"
+      timezone: "America/Los_Angeles"   # 9:15 AM Pacific
+    - cron: "30 16 * * *"
+      timezone: "America/Los_Angeles"   # 4:30 PM Pacific
   workflow_dispatch:
 
 permissions:
@@ -10,11 +13,11 @@ permissions:
 
 jobs:
   scrape:
-    runs-on: ubuntu-24.04    # pinned to avoid surprise bumps from ubuntu-latest
+    runs-on: ubuntu-24.04    # pinned to avoid changes from ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v5.0.1
 
-      - uses: actions/setup-python@v5.3.0
+      - uses: actions/setup-python@v6.3.0
         with:
           python-version: "3.11"
 
@@ -35,5 +38,25 @@ jobs:
           git config user.name  "job-scraper-bot"
           git config user.email "job-scraper-bot@users.noreply.github.com"
           git add seen_jobs.json
-          git diff --cached --quiet || git commit -m "chore: update seen_jobs.json"
-          git push
+          # Nothing changed -> nothing to push.
+          if git diff --cached --quiet; then
+            echo "No state changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update seen_jobs.json"
+          # The remote may have advanced (an earlier run, or a manual commit)
+          # since this job checked out. Rebase-and-push with a few retries to
+          # win the race without failing the run.
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt); rebasing onto latest main."
+            git pull --rebase --autostash origin main || {
+              echo "Rebase failed; taking remote seen_jobs.json and re-applying is unnecessary for generated state."
+              exit 1
+            }
+          done
+          echo "Failed to push after multiple attempts."
+          exit 1

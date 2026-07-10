@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from urllib.parse import urlencode, urlparse
+from urllib.parse import unquote, urlencode, urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 GUEST_SEARCH_URL = (
     "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
 )
+
+GUEST_JOB_DETAIL_URL = "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
 
 # A current Chrome on macOS UA. Python's default `python-requests/x.y` is
 # filtered aggressively, so we present as a real browser.
@@ -176,3 +178,122 @@ def search(keywords: str, location: str, max_results: int = 25) -> list[dict]:
 
     time.sleep(SLEEP_BETWEEN_REQUESTS)
     return jobs[:max_results]
+
+
+GUEST_JOB_VIEW_URL = "https://www.linkedin.com/jobs-guest/jobs/view/{job_id}"
+
+# LinkedIn historically exposed the offsite apply URL to guests in a
+# <code id="applyUrl"><!--"https://www.linkedin.com/.../externalApply/...?url=<encoded>"--></code>
+# element. As of mid-2026 it is usually omitted, but we still parse it when
+# present since it is the only source of the actual company-site link.
+_APPLY_URL_RE = re.compile(r'\?url=([^"&]+)')
+_ENCODED_URL_RE = re.compile(
+    r'https?%3A%2F%2F[^"&\s]+|https?://[^\s"\'<>]+',
+    flags=re.IGNORECASE,
+)
+
+# Markers that reliably distinguish offsite-apply postings from Easy Apply
+# ones on the guest job-detail fragment.
+_OFFSITE_MARKERS = (
+    "apply-button__offsite-apply-icon",
+    "public_jobs_apply-link-offsite",
+)
+
+# Common ATS / careers-page hosts seen in offsite apply redirects.
+_ATS_HOST_MARKERS = (
+    "greenhouse.io",
+    "lever.co",
+    "myworkdayjobs.com",
+    "ashbyhq.com",
+    "jobvite.com",
+    "icims.com",
+    "smartrecruiters.com",
+    "taleo.net",
+    "bamboohr.com",
+    "careers.",
+    "/careers/",
+    "/jobs/",
+)
+
+
+def _is_external_apply_url(url: str) -> bool:
+    """True when a URL looks like a company-site apply link, not LinkedIn."""
+    if not url or "linkedin.com" in url.lower():
+        return False
+    lower = url.lower()
+    return any(marker in lower for marker in _ATS_HOST_MARKERS)
+
+
+def _extract_apply_url(html: str) -> str | None:
+    """Best-effort extraction of a company-site apply URL from job HTML."""
+    soup = BeautifulSoup(html, "lxml")
+    code_el = soup.find("code", id="applyUrl")
+    if code_el:
+        m = _APPLY_URL_RE.search(code_el.decode_contents())
+        if m:
+            candidate = unquote(m.group(1))
+            if _is_external_apply_url(candidate):
+                return candidate
+
+    # Fallback: scan for encoded redirect targets or bare external URLs.
+    for m in _ENCODED_URL_RE.finditer(html):
+        candidate = unquote(m.group(0))
+        if _is_external_apply_url(candidate):
+            return candidate
+    return None
+
+
+def _classify_apply(html: str, apply_url: str | None) -> str:
+    if apply_url or any(marker in html for marker in _OFFSITE_MARKERS):
+        return "direct"
+    if "top-card-layout" in html:
+        return "easy_apply"
+    return "unknown"
+
+
+def _fetch_html(url: str, job_id: str) -> str | None:
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    except requests.RequestException as e:
+        log.warning("linkedin request failed for %s (%s): %s", job_id, url, e)
+        return None
+    finally:
+        time.sleep(SLEEP_BETWEEN_REQUESTS)
+
+    if resp.status_code >= 400:
+        log.warning("linkedin HTTP %s for %s (%s)", resp.status_code, job_id, url)
+        return None
+    return resp.text
+
+
+def fetch_apply_info(job_id: str) -> dict:
+    """Fetch the guest job-detail fragment and classify how one applies.
+
+    Returns a dict with:
+        apply_type: "direct"     -- offsite apply on the company's site
+                    "easy_apply" -- LinkedIn-hosted quick apply only
+                    "unknown"    -- fetch failed / page unrecognizable
+        apply_url:  the direct company-site apply URL when LinkedIn exposes
+                    it (rare for guests), else None.
+    """
+    html = _fetch_html(GUEST_JOB_DETAIL_URL.format(job_id=job_id), job_id)
+    if html is None:
+        return {"apply_type": "unknown", "apply_url": None}
+
+    apply_url = _extract_apply_url(html)
+    apply_type = _classify_apply(html, apply_url)
+
+    # The full guest view page occasionally exposes an apply URL that the API
+    # fragment omits. Only fetch it for likely-direct postings still missing a
+    # URL, since it is a much larger response.
+    if apply_type == "direct" and not apply_url:
+        view_html = _fetch_html(GUEST_JOB_VIEW_URL.format(job_id=job_id), job_id)
+        if view_html:
+            apply_url = _extract_apply_url(view_html)
+            apply_type = _classify_apply(view_html, apply_url)
+
+    if apply_type == "unknown":
+        log.info("linkedin job-detail page unrecognizable for %s (%d bytes)",
+                 job_id, len(html))
+
+    return {"apply_type": apply_type, "apply_url": apply_url}

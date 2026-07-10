@@ -14,25 +14,65 @@ import logging
 import os
 import smtplib
 import ssl
+from datetime import datetime, timezone
 from email.message import EmailMessage
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 
 
-def _format_body(new_jobs: list[dict]) -> str:
-    parts: list[str] = []
-    # Group by source for a tidier digest.
-    by_source: dict[str, list[dict]] = {}
-    for j in new_jobs:
-        by_source.setdefault(j.get("source", "unknown"), []).append(j)
+# Section order and headings for the digest. LinkedIn postings are split by
+# how you apply: direct (company careers site) vs Easy Apply (LinkedIn-only).
+_SECTIONS = [
+    ("direct", "LINKEDIN - DIRECT APPLY (company site)"),
+    ("easy_apply", "LINKEDIN - EASY APPLY (LinkedIn only)"),
+    ("unknown", "LINKEDIN - APPLY TYPE UNKNOWN"),
+    ("indeed", "INDEED"),
+]
 
-    for source, jobs in by_source.items():
-        parts.append(f"=== {source.upper()} ({len(jobs)}) ===")
-        for j in jobs:
-            parts.append(
-                f"{j.get('title', '(no title)')} @ {j.get('company', '(unknown)')}"
-                f" ({j.get('location', '')})\n{j.get('url', '')}"
-            )
+
+def _format_job(j: dict) -> str:
+    locations = j.get("locations") or [j.get("location", "")]
+    loc_str = "; ".join(loc for loc in locations if loc)
+    lines = [
+        f"{j.get('title', '(no title)')} @ {j.get('company', '(unknown)')} ({loc_str})",
+        j.get("url", ""),
+    ]
+    if j.get("apply_url"):
+        lines.append(f"Apply directly: {j['apply_url']}")
+    return "\n".join(lines)
+
+
+def _run_timestamp() -> str:
+    now = datetime.now(timezone.utc)
+    pacific = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    return (
+        f"Scraper ran at {pacific.strftime('%Y-%m-%d %I:%M %p %Z')} "
+        f"({now.strftime('%Y-%m-%d %H:%M UTC')})"
+    )
+
+
+def _format_body(new_jobs: list[dict]) -> str:
+    grouped: dict[str, list[dict]] = {}
+    for j in new_jobs:
+        if j.get("source") == "linkedin":
+            key = j.get("apply_type", "unknown")
+        else:
+            key = j.get("source", "unknown")
+        grouped.setdefault(key, []).append(j)
+
+    parts: list[str] = [_run_timestamp(), ""]
+    for key, heading in _SECTIONS:
+        jobs = grouped.pop(key, None)
+        if not jobs:
+            continue
+        parts.append(f"=== {heading} ({len(jobs)}) ===")
+        parts.extend(_format_job(j) for j in jobs)
+        parts.append("")
+    # Anything from a source/type not covered above.
+    for key, jobs in grouped.items():
+        parts.append(f"=== {key.upper()} ({len(jobs)}) ===")
+        parts.extend(_format_job(j) for j in jobs)
         parts.append("")
     return "\n\n".join(parts).strip() + "\n"
 

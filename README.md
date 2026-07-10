@@ -33,10 +33,24 @@ GitHub Actions cron (2x/day)
   -> scraper.main
        -> scraper.linkedin.search(...)   # per title, per location
        -> scraper.indeed.search(...)
-       -> dedupe against seen_jobs.json
+       -> dedupe against seen_jobs.json (by posting id)
+       -> fetch each new LinkedIn job's detail page to classify
+          direct-apply (company site) vs Easy Apply (LinkedIn-only)
+       -> collapse duplicate roles (same direct apply URL when LinkedIn
+          exposes it, else same company + title) into one entry with all
+          locations merged; skip roles already reported in a past run
        -> if any new: notify.send_digest(...)  (Gmail SMTP)
   -> commit updated seen_jobs.json back to the repo
 ```
+
+The email digest splits LinkedIn results into **Direct apply** and
+**Easy Apply** sections. When LinkedIn exposes the company-site apply URL
+to guests (it usually doesn't anymore), it is included as an
+`Apply directly:` line and used as the dedupe key; otherwise duplicates are
+collapsed by company + title. Role keys are stored in `seen_jobs.json`
+alongside posting ids (as `role:...` entries), so a reposted or
+multi-location copy of an already-reported role does not email again for
+30 days (`PRUNE_AFTER_DAYS`).
 
 State is persisted by committing `seen_jobs.json` back to the default branch,
 so the next run's fresh VM knows what it has already reported.

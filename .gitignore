@@ -6,4 +6,3 @@ venv/
 .env
 .DS_Store
 KaufmannResume.pdf
-seen_jobs.json

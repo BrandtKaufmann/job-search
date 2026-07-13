@@ -46,6 +46,40 @@ def _format_job(j: dict) -> str:
 def _run_timestamp() -> str:
     now = datetime.now(timezone.utc)
     pacific = now.astimezone(ZoneInfo("America/Los_Angeles"))
+    # #region agent log
+    try:
+        import json
+        import urllib.request
+
+        payload = {
+            "sessionId": "cabc03",
+            "runId": "schedule-debug",
+            "hypothesisId": "D",
+            "location": "scraper/notify.py:_run_timestamp",
+            "message": "email digest timestamp computed",
+            "data": {
+                "utc": now.isoformat(),
+                "pacific": pacific.isoformat(),
+                "tzname": pacific.tzname(),
+                "utcoffset_seconds": int(pacific.utcoffset().total_seconds())
+                if pacific.utcoffset()
+                else None,
+            },
+            "timestamp": int(now.timestamp() * 1000),
+        }
+        req = urllib.request.Request(
+            "http://127.0.0.1:7588/ingest/facac52a-67b8-46c7-b99c-00314721f273",
+            data=json.dumps(payload).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "X-Debug-Session-Id": "cabc03",
+            },
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass
+    # #endregion
     return (
         f"Scraper ran at {pacific.strftime('%Y-%m-%d %I:%M %p %Z')} "
         f"({now.strftime('%Y-%m-%d %H:%M UTC')})"
